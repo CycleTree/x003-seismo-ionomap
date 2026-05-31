@@ -1,0 +1,52 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: seismo-ionomap-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATA_DIR=/data
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: seismo-ionomap-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    command: npm run dev -- --host 0.0.0.0
+    depends_on:
+      - backend
+
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: seismo-ionomap-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=seismo_ionomap
+      - POSTGRES_USER=seismo
+      - POSTGRES_PASSWORD=seismo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - db
+
+volumes:
+  postgres_data:

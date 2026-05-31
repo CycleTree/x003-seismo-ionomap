@@ -1,0 +1,14 @@
+numpy
+pandas
+scipy
+pyarrow
+duckdb
+xarray
+pydantic
+pyyaml
+pymap3d
+pyproj
+geopandas
+shapely
+fastapi
+uvicorn

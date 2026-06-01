@@ -35,6 +35,10 @@ def load_anomaly_grid(config: AnomalyGridServiceConfig) -> pd.DataFrame:
         raise FileNotFoundError(f"No anomaly grid parquet found in {search_dirs}")
     frame = pd.read_parquet(files[-1]).copy()
     frame["time_bin"] = pd.to_datetime(frame["time_bin"], utc=True)
+    if "baseline_mode" not in frame.columns:
+        frame["baseline_mode"] = "self"
+    if "local_time_slot" not in frame.columns:
+        frame["local_time_slot"] = frame["time_bin"].dt.strftime("%H:%M")
     return frame
 
 

@@ -5,6 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const sourceId = "anomaly-grid";
 const apiStorageKey = "seismo-ionomap.api-base-url";
+type DisplayMode = "anomaly" | "detrended" | "vtec";
 
 type GridFeature = {
   type: "Feature";
@@ -19,9 +20,13 @@ type GridFeature = {
     sample_count: number;
     median_vtec_tecu: number;
     baseline_vtec_tecu: number;
+    baseline_mode: string;
     delta_vtec_tecu: number;
     z_score: number;
     abs_z_score: number;
+    local_time_slot: string;
+    display_mode: DisplayMode;
+    display_value: number;
   };
 };
 
@@ -32,19 +37,58 @@ type FeatureCollection = {
 
 type ApiResponse = {
   time: string;
+  mode: DisplayMode;
   featureCollection: FeatureCollection;
   stats: {
     cellCount: number;
-    maxAbsZScore: number;
-    meanZScore: number;
+    maxAbsValue: number;
+    meanValue: number;
   };
 };
 
-function getFillColorExpression() {
+function getFillColorExpression(mode: DisplayMode) {
+  if (mode === "vtec") {
+    return [
+      "interpolate",
+      ["linear"],
+      ["get", "display_value"],
+      0,
+      "#081f3f",
+      10,
+      "#2c7fb8",
+      20,
+      "#41b6c4",
+      35,
+      "#c7e9b4",
+      50,
+      "#fdae61",
+      70,
+      "#d73027",
+    ] as maplibregl.ExpressionSpecification;
+  }
+
+  if (mode === "detrended") {
+    return [
+      "interpolate",
+      ["linear"],
+      ["get", "display_value"],
+      -10,
+      "#0b3c5d",
+      -3,
+      "#65a9d7",
+      0,
+      "#f8fafc",
+      3,
+      "#f59e0b",
+      10,
+      "#b91c1c",
+    ] as maplibregl.ExpressionSpecification;
+  }
+
   return [
     "interpolate",
     ["linear"],
-    ["get", "z_score"],
+    ["get", "display_value"],
     -3,
     "#0b3c5d",
     -1,
@@ -56,6 +100,55 @@ function getFillColorExpression() {
     3,
     "#b91c1c",
   ] as maplibregl.ExpressionSpecification;
+}
+
+function modeLabel(mode: DisplayMode) {
+  if (mode === "vtec") {
+    return "VTEC";
+  }
+  if (mode === "detrended") {
+    return "Detrended TEC";
+  }
+  return "Anomaly z-score";
+}
+
+function thresholdLabel(mode: DisplayMode) {
+  if (mode === "vtec") {
+    return "Min VTEC";
+  }
+  if (mode === "detrended") {
+    return "Min |delta TEC|";
+  }
+  return "Min |z-score|";
+}
+
+function legendItems(mode: DisplayMode): Array<[string, string]> {
+  if (mode === "vtec") {
+    return [
+      ["0 TECU", "#081f3f"],
+      ["10", "#2c7fb8"],
+      ["20", "#41b6c4"],
+      ["35", "#c7e9b4"],
+      ["50", "#fdae61"],
+      ["70+", "#d73027"],
+    ];
+  }
+  if (mode === "detrended") {
+    return [
+      ["≤ -10", "#0b3c5d"],
+      ["-3", "#65a9d7"],
+      ["0", "#f8fafc"],
+      ["+3", "#f59e0b"],
+      ["≥ +10", "#b91c1c"],
+    ];
+  }
+  return [
+    ["z ≤ -3", "#0b3c5d"],
+    ["-1", "#65a9d7"],
+    ["0", "#f8fafc"],
+    ["+1", "#f59e0b"],
+    ["z ≥ +3", "#b91c1c"],
+  ];
 }
 
 export default function App() {
@@ -80,8 +173,9 @@ export default function App() {
     type: "FeatureCollection",
     features: [],
   });
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("anomaly");
   const [minSampleCount, setMinSampleCount] = useState<number>(1);
-  const [minAbsZScore, setMinAbsZScore] = useState<number>(0);
+  const [minDisplayMagnitude, setMinDisplayMagnitude] = useState<number>(0);
   const [fillOpacity, setFillOpacity] = useState<number>(0.78);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
@@ -113,7 +207,7 @@ export default function App() {
         type: "fill",
         source: sourceId,
         paint: {
-          "fill-color": getFillColorExpression(),
+          "fill-color": getFillColorExpression(displayMode),
           "fill-opacity": fillOpacity,
         },
       });
@@ -139,9 +233,11 @@ export default function App() {
           .setHTML(
             [
               `<strong>${String(props.time)}</strong>`,
-              `z-score: ${Number(props.z_score).toFixed(2)}`,
+              `mode: ${String(props.display_mode)}`,
+              `value: ${Number(props.display_value).toFixed(2)}`,
               `delta TEC: ${Number(props.delta_vtec_tecu).toFixed(2)}`,
               `median VTEC: ${Number(props.median_vtec_tecu).toFixed(2)}`,
+              `baseline: ${Number(props.baseline_vtec_tecu).toFixed(2)} (${String(props.baseline_mode)})`,
               `samples: ${Number(props.sample_count)}`,
             ].join("<br />"),
           )
@@ -154,7 +250,7 @@ export default function App() {
       map.remove();
       mapRef.current = null;
     };
-  }, [fillOpacity]);
+  }, [displayMode, fillOpacity]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -172,11 +268,11 @@ export default function App() {
       features: rawFeatureCollection.features.filter((feature) => {
         return (
           feature.properties.sample_count >= minSampleCount &&
-          Math.abs(feature.properties.z_score) >= minAbsZScore
+          Math.abs(feature.properties.display_value) >= minDisplayMagnitude
         );
       }),
     });
-  }, [rawFeatureCollection, minSampleCount, minAbsZScore]);
+  }, [rawFeatureCollection, minSampleCount, minDisplayMagnitude]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -184,7 +280,8 @@ export default function App() {
       return;
     }
     map.setPaintProperty("anomaly-fill", "fill-opacity", fillOpacity);
-  }, [fillOpacity]);
+    map.setPaintProperty("anomaly-fill", "fill-color", getFillColorExpression(displayMode));
+  }, [displayMode, fillOpacity]);
 
   useEffect(() => {
     async function loadTimes() {
@@ -221,7 +318,9 @@ export default function App() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch(`${apiBaseUrl}/api/anomaly-grid?time=${encodeURIComponent(selectedTime)}`);
+        const response = await fetch(
+          `${apiBaseUrl}/api/anomaly-grid?time=${encodeURIComponent(selectedTime)}&mode=${displayMode}`,
+        );
         if (!response.ok) {
           throw new Error(`Failed to fetch anomaly grid: ${response.status}`);
         }
@@ -235,7 +334,7 @@ export default function App() {
       }
     }
     void loadGrid();
-  }, [apiBaseUrl, selectedTime]);
+  }, [apiBaseUrl, displayMode, selectedTime]);
 
   function handleApplyApiBaseUrl() {
     const normalizedValue = apiBaseUrlInput.trim().replace(/\/+$/, "");
@@ -278,7 +377,7 @@ export default function App() {
             TEC Anomaly Grid
           </h1>
           <p style={{ marginTop: 0, color: "#cbd5e1", lineHeight: 1.55 }}>
-            <code>anomaly_grid.parquet</code> を GeoJSON 化して、z-score を格子塗りで表示しています。
+            <code>anomaly_grid.parquet</code> を GeoJSON 化して、VTEC / detrended / anomaly を切り替えて表示しています。
           </p>
 
           <section
@@ -366,6 +465,26 @@ export default function App() {
             ))}
           </select>
 
+          <label style={{ display: "block", marginTop: "1rem", marginBottom: "0.5rem", fontWeight: 600 }}>
+            Display Mode
+          </label>
+          <select
+            value={displayMode}
+            onChange={(event) => setDisplayMode(event.target.value as DisplayMode)}
+            style={{
+              width: "100%",
+              padding: "0.8rem 0.9rem",
+              borderRadius: "0.8rem",
+              border: "1px solid rgba(148, 163, 184, 0.25)",
+              background: "rgba(15, 23, 42, 0.9)",
+              color: "#f8fafc",
+            }}
+          >
+            <option value="anomaly">Anomaly z-score</option>
+            <option value="detrended">Detrended TEC</option>
+            <option value="vtec">VTEC</option>
+          </select>
+
           <section
             style={{
               marginTop: "1.25rem",
@@ -377,9 +496,10 @@ export default function App() {
           >
             <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Grid Stats</h2>
             <p style={{ margin: "0.4rem 0" }}>API: <code>{apiBaseUrl}</code></p>
+            <p style={{ margin: "0.4rem 0" }}>Mode: {modeLabel(displayMode)}</p>
             <p style={{ margin: "0.4rem 0" }}>Cells: {stats?.cellCount ?? "-"}</p>
-            <p style={{ margin: "0.4rem 0" }}>Max |z|: {stats ? stats.maxAbsZScore.toFixed(2) : "-"}</p>
-            <p style={{ margin: "0.4rem 0" }}>Mean z: {stats ? stats.meanZScore.toFixed(2) : "-"}</p>
+            <p style={{ margin: "0.4rem 0" }}>Max |value|: {stats ? stats.maxAbsValue.toFixed(2) : "-"}</p>
+            <p style={{ margin: "0.4rem 0" }}>Mean value: {stats ? stats.meanValue.toFixed(2) : "-"}</p>
             <p style={{ margin: "0.4rem 0" }}>Status: {loading ? "loading" : "ready"}</p>
             {error ? <p style={{ marginBottom: 0, color: "#fca5a5" }}>{error}</p> : null}
           </section>
@@ -408,15 +528,15 @@ export default function App() {
             />
 
             <label style={{ display: "block", marginTop: "1rem", marginBottom: "0.4rem" }}>
-              Min |z-score|: <strong>{minAbsZScore.toFixed(1)}</strong>
+              {thresholdLabel(displayMode)}: <strong>{minDisplayMagnitude.toFixed(1)}</strong>
             </label>
             <input
               type="range"
               min={0}
-              max={5}
+              max={displayMode === "vtec" ? 40 : displayMode === "detrended" ? 20 : 5}
               step={0.1}
-              value={minAbsZScore}
-              onChange={(event) => setMinAbsZScore(Number(event.target.value))}
+              value={minDisplayMagnitude}
+              onChange={(event) => setMinDisplayMagnitude(Number(event.target.value))}
               style={{ width: "100%" }}
             />
 
@@ -437,11 +557,7 @@ export default function App() {
           <section style={{ marginTop: "1.25rem" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.5rem" }}>
               {[
-                ["z ≤ -3", "#0b3c5d"],
-                ["-1", "#65a9d7"],
-                ["0", "#f8fafc"],
-                ["+1", "#f59e0b"],
-                ["z ≥ +3", "#b91c1c"],
+                ...legendItems(displayMode),
               ].map(([label, color]) => (
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
                   <span style={{ width: "1.2rem", height: "1.2rem", borderRadius: "0.3rem", background: color }} />

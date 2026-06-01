@@ -8,6 +8,7 @@ from app.services.anomaly_grid import (
     filter_grid_by_time,
     list_available_times,
     load_anomaly_grid,
+    stats_for_mode,
 )
 
 
@@ -23,7 +24,10 @@ def build_anomaly_router(config: AnomalyGridServiceConfig) -> APIRouter:
         return {"times": list_available_times(frame)}
 
     @router.get("")
-    def get_anomaly_grid(time: str | None = Query(default=None)) -> dict[str, object]:
+    def get_anomaly_grid(
+        time: str | None = Query(default=None),
+        mode: str = Query(default="anomaly", pattern="^(anomaly|detrended|vtec)$"),
+    ) -> dict[str, object]:
         try:
             frame = load_anomaly_grid(config)
         except FileNotFoundError as exc:
@@ -33,12 +37,9 @@ def build_anomaly_router(config: AnomalyGridServiceConfig) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"No anomaly grid rows found for time={resolved_time}")
         return {
             "time": resolved_time,
-            "featureCollection": anomaly_grid_to_geojson(filtered),
-            "stats": {
-                "cellCount": int(len(filtered)),
-                "maxAbsZScore": float(filtered["abs_z_score"].max()),
-                "meanZScore": float(filtered["z_score"].mean()),
-            },
+            "mode": mode,
+            "featureCollection": anomaly_grid_to_geojson(filtered, mode=mode),
+            "stats": stats_for_mode(filtered, mode),
         }
 
     return router

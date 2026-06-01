@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.processing.bias import BiasProcessingConfig, apply_bias_components, estimate_bias_components
+
 
 SPEED_OF_LIGHT_MPS = 299_792_458.0
 GPS_L1_HZ = 1_575_420_000.0
@@ -22,6 +24,9 @@ class StecProcessingConfig:
     gap_seconds: float = 300.0
     phase_jump_threshold_tecu: float = 2.0
     min_arc_points: int = 10
+    receiver_penalty: float = 0.01
+    satellite_penalty: float = 0.01
+    arc_penalty: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -122,11 +127,16 @@ def level_phase_stec_by_arc(
     processed = frame.copy()
     processed["arc_point_count"] = processed.groupby("arc_id", sort=False)["time"].transform("size")
     processed = processed.loc[processed["arc_point_count"] >= config.min_arc_points].copy()
-    processed["arc_bias_tecu"] = processed.groupby("arc_id", sort=False).apply(
-        lambda group: (group["code_stec_tecu"] - group["phase_stec_tecu"]).median()
-    ).reindex(processed["arc_id"]).to_numpy()
-    processed["stec_leveled_tecu"] = processed["phase_stec_tecu"] + processed["arc_bias_tecu"]
-    return processed.reset_index(drop=True)
+    biases = estimate_bias_components(
+        processed,
+        BiasProcessingConfig(
+            receiver_penalty=config.receiver_penalty,
+            satellite_penalty=config.satellite_penalty,
+            arc_penalty=config.arc_penalty,
+        ),
+    )
+    leveled = apply_bias_components(processed, biases)
+    return leveled.reset_index(drop=True)
 
 
 def build_stec_arcs(

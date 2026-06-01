@@ -12,7 +12,7 @@
 4. `stec_arcs` から `IPP / VTEC / grid / anomaly grid` を生成する処理
 5. 複数観測局を並列に処理して national grid を作る処理
 
-計算の理論背景は [TEC Processing Pipeline](./tec-processing-pipeline.md) を参照する。
+計算の理論背景は [計算式](./計算式.md) を参照する。
 
 ## Implemented Files
 
@@ -33,12 +33,14 @@
 - [backend/app/processing/bias.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/processing/bias.py:1)
 - [backend/app/processing/ipp.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/processing/ipp.py:1)
 - [backend/app/processing/grid.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/processing/grid.py:1)
+- [backend/app/processing/regional_vtec.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/processing/regional_vtec.py:1)
 - [backend/app/processing/anomaly.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/processing/anomaly.py:1)
 - [backend/app/processing/multi_station.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/processing/multi_station.py:1)
 - [backend/scripts/build_station_metadata.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/build_station_metadata.py:1)
 - [backend/scripts/build_bias_tables.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/build_bias_tables.py:1)
 - [backend/scripts/build_ipp_points.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/build_ipp_points.py:1)
 - [backend/scripts/build_tec_grid.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/build_tec_grid.py:1)
+- [backend/scripts/build_regional_vtec.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/build_regional_vtec.py:1)
 - [backend/scripts/build_anomaly_grid.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/build_anomaly_grid.py:1)
 - [backend/scripts/run_full_pipeline.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/run_full_pipeline.py:1)
 - [backend/scripts/run_multi_station_pipeline.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/scripts/run_multi_station_pipeline.py:1)
@@ -87,7 +89,7 @@ G01,2026-05-20 00:00:00.000,20097557.797,105613442.765,...
 station_id, system, sat_id, time, obs_code, value
 ```
 
-`select_priority_observations()` は GPS を対象に、優先順位で 1 本ずつ選ぶ。
+`select_priority_observations()` は constellation ごとの優先順位で 1 本ずつ選ぶ。
 
 - `L1_value`, `L1_code`
 - `L2_value`, `L2_code`
@@ -97,6 +99,7 @@ station_id, system, sat_id, time, obs_code, value
 - `S2_value`, `S2_code`
 
 優先順位は [backend/app/config/gnss.py](/home/mtdnot/dev/x003-seismo-ionomap/backend/app/config/gnss.py:1) で定義している。
+現在の対象は `G`, `R`, `E`, `J` である。
 
 ### Output
 
@@ -124,9 +127,9 @@ data/intermediate/observations/00011400.selected.parquet
 
 ### Current assumptions
 
-- 現在の観測コード選択は GPS 優先
+- selected 観測は multi-GNSS を保持する
 - RINGO CSV の列構造が大きく変わらない前提
-- LLI はまだ ingest に含めていない
+- 利用可能な場合は `L1_lli`, `L2_lli` を selected に伝搬する
 - `rnxcsv obs nav` の `az`, `el` が利用できる前提
 
 ## Stage 2: STEC Arc Build
@@ -154,6 +157,8 @@ data/intermediate/observations/00011400.selected.parquet
 - `L1_value`, `L2_value`, `C1_value`, `C2_value` がすべて非欠損
 
 さらに `station_id`, `sat_id`, `time` でソートする。
+
+つまり、ingest は multi-GNSS 化済みだが、現時点の STEC 計算は GPS L1/L2 に限定している。
 
 ### Step 2: Geometry-free combinations
 
@@ -329,6 +334,19 @@ data/intermediate/ipp_points/00011400_nav.ipp_points.parquet
 - `median_vtec_tecu`
 - `std_vtec_tecu`
 
+### Regional VTEC
+
+`v0.2` では `backend/app/processing/regional_vtec.py` を追加し、national pipeline の `tec_grid` は raw IPP cell aggregate ではなく regularized solver から作る。
+
+現在の regional solver は次を行う。
+
+- 固定の全国格子を定義する
+- 各 IPP 観測を周辺格子へ双線形重みで結ぶ
+- 時刻ごとに regularized least squares を解く
+- 既存 API を壊さないよう、出力列は `tec_grid.parquet` と互換に保つ
+
+`run_full_pipeline.py` と `run_multi_station_pipeline.py` は現在この solver を使って `tec_grid` を生成する。
+
 ### Anomaly
 
 `build_anomaly_grid.py` は grid 単位で baseline と dispersion を求め、`delta_vtec_tecu` と `z_score` を付与する。
@@ -452,12 +470,12 @@ make national-pipeline MAX_STATIONS=5 WORKERS=2
 
 現在まだ入っていないもの:
 
-- LLI を使った slip 判定
+- LLI を使った arc segmentation の強化
 - Melbourne-Wubbena など追加の slip 指標
 - elevation mask の厳密なチューニング
 - satellite position の自前計算
 - quiet-day baseline
-- multi-GNSS の本格対応
+- STEC 以降の multi-GNSS 本格対応
 - 全 1301 局での national batch 常用運転
 - frontend 上の時系列統計パネル
 

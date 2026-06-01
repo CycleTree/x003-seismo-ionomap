@@ -78,36 +78,55 @@ def wide_to_long_observations(wide: pd.DataFrame) -> pd.DataFrame:
 
 def select_priority_observations(
     wide: pd.DataFrame,
-    priority: ObservationPriority,
+    priorities: ObservationPriority | tuple[ObservationPriority, ...],
 ) -> pd.DataFrame:
-    frame = wide.loc[wide["system"] == priority.system].copy()
-    selected = frame[["station_id", "system", "sat_id", "time"]].copy()
-    if "source_path" in frame.columns:
-        selected["source_path"] = frame["source_path"]
-    for column in CONTEXT_COLUMNS:
-        if column in frame.columns:
-            selected[column] = pd.to_numeric(frame[column], errors="coerce")
+    priority_items = priorities if isinstance(priorities, tuple) else (priorities,)
+    selected_frames: list[pd.DataFrame] = []
 
-    for alias, codes in {
-        "L1": priority.l1_priority,
-        "L2": priority.l2_priority,
-        "C1": priority.c1_priority,
-        "C2": priority.c2_priority,
-        "S1": priority.s1_priority,
-        "S2": priority.s2_priority,
-    }.items():
-        value_column = f"{alias}_value"
-        code_column = f"{alias}_code"
-        selected[value_column] = pd.NA
-        selected[code_column] = pd.NA
-        for code in codes:
-            if code not in frame.columns:
-                continue
-            mask = selected[value_column].isna() & frame[code].notna()
-            selected.loc[mask, value_column] = frame.loc[mask, code]
-            selected.loc[mask, code_column] = code
+    for priority in priority_items:
+        frame = wide.loc[wide["system"] == priority.system].copy()
+        if frame.empty:
+            continue
+        selected = frame[["station_id", "system", "sat_id", "time"]].copy()
+        if "source_path" in frame.columns:
+            selected["source_path"] = frame["source_path"]
+        for column in CONTEXT_COLUMNS:
+            if column in frame.columns:
+                selected[column] = pd.to_numeric(frame[column], errors="coerce")
 
-    return selected
+        for alias, codes in {
+            "L1": priority.l1_priority,
+            "L2": priority.l2_priority,
+            "C1": priority.c1_priority,
+            "C2": priority.c2_priority,
+            "S1": priority.s1_priority,
+            "S2": priority.s2_priority,
+        }.items():
+            value_column = f"{alias}_value"
+            code_column = f"{alias}_code"
+            selected[value_column] = pd.NA
+            selected[code_column] = pd.NA
+            for code in codes:
+                if code not in frame.columns:
+                    continue
+                mask = selected[value_column].isna() & frame[code].notna()
+                selected.loc[mask, value_column] = frame.loc[mask, code]
+                selected.loc[mask, code_column] = code
+
+        selected_frames.append(selected)
+
+    if not selected_frames:
+        empty_columns = ["station_id", "system", "sat_id", "time", "source_path", *CONTEXT_COLUMNS]
+        empty_columns.extend(
+            f"{alias}_{suffix}"
+            for alias in ("L1", "L2", "C1", "C2", "S1", "S2")
+            for suffix in ("value", "code")
+        )
+        return pd.DataFrame(columns=empty_columns)
+
+    return pd.concat(selected_frames, ignore_index=True).sort_values(
+        ["station_id", "system", "sat_id", "time"]
+    ).reset_index(drop=True)
 
 
 def export_observation_products(

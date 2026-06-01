@@ -96,7 +96,7 @@ def process_single_station(pair: StationPair, config: StationProcessingConfig) -
     ringo_frame = load_ringo_csv(csv_path)
     wide = normalize_wide_observations(ringo_frame, station_id=station_id, source_path=csv_path)
     long_frame = wide_to_long_observations(wide)
-    selected = select_priority_observations(wide, IngestConfig().observation_priority)
+    selected = select_priority_observations(wide, IngestConfig().observation_priorities)
     export_observation_products(
         wide=wide,
         long_frame=long_frame,

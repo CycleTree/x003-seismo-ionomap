@@ -52,7 +52,7 @@ def main() -> None:
     frame = load_ringo_csv(input_csv)
     wide = normalize_wide_observations(frame, station_id=station_id, source_path=input_csv)
     long_frame = wide_to_long_observations(wide)
-    selected = select_priority_observations(wide, config.observation_priority)
+    selected = select_priority_observations(wide, config.observation_priorities)
     artifacts = export_observation_products(
         wide=wide,
         long_frame=long_frame,

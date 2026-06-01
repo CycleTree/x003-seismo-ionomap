@@ -12,6 +12,7 @@ from app.processing.anomaly import (
     AnomalyProcessingConfig,
     build_anomaly_grid,
     export_anomaly_grid,
+    load_baseline_tec_grids,
     load_tec_grid,
 )
 
@@ -21,15 +22,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("input_tec_grid", help="Path to TEC grid parquet")
     parser.add_argument("--output-dir", default="data/intermediate/anomaly_grid")
     parser.add_argument("--std-floor-tecu", type=float, default=0.1)
+    parser.add_argument("--baseline-grid", action="append", default=[], help="Quiet-day TEC grid parquet path")
+    parser.add_argument("--local-time-offset-hours", type=float, default=9.0)
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     tec_grid = load_tec_grid(args.input_tec_grid)
+    baseline_grid = load_baseline_tec_grids(args.baseline_grid)
     anomaly_grid = build_anomaly_grid(
         tec_grid,
-        AnomalyProcessingConfig(std_floor_tecu=args.std_floor_tecu),
+        AnomalyProcessingConfig(
+            std_floor_tecu=args.std_floor_tecu,
+            local_time_offset_hours=args.local_time_offset_hours,
+        ),
+        baseline_grid=baseline_grid,
     )
     input_path = Path(args.input_tec_grid)
     artifacts = export_anomaly_grid(

@@ -1,8 +1,9 @@
 # Docs
 
-- [TEC Processing Pipeline](./tec-processing-pipeline.md)
+- [計算式](./計算式.md)
 - [Current Implementation](./current-implementation.md)
 - [GSI SFTP Data Notes](./gsi-sftp-data-notes.md)
+- [Reference](./reference.md)
 - [Release v0.1](./release-v0.1.md)
 - [v0.2 Plan](./v0.2-plan.md)
 

@@ -112,6 +112,19 @@ def select_priority_observations(
                 mask = selected[value_column].isna() & frame[code].notna()
                 selected.loc[mask, value_column] = frame.loc[mask, code]
                 selected.loc[mask, code_column] = code
+                lli_column = next(
+                    (
+                        candidate
+                        for candidate in (f"{code}_lli", f"{code}_LLI")
+                        if candidate in frame.columns
+                    ),
+                    None,
+                )
+                if lli_column is not None:
+                    alias_lli_column = f"{alias}_lli"
+                    if alias_lli_column not in selected.columns:
+                        selected[alias_lli_column] = pd.NA
+                    selected.loc[mask, alias_lli_column] = frame.loc[mask, lli_column]
 
         selected_frames.append(selected)
 

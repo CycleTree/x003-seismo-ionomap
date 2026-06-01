@@ -13,6 +13,7 @@ from app.config.gnss import IngestConfig
 from app.processing.anomaly import AnomalyProcessingConfig, build_anomaly_grid, export_anomaly_grid
 from app.processing.grid import GridProcessingConfig, build_tec_grid, export_tec_grid
 from app.processing.ipp import IppProcessingConfig, build_ipp_points, export_ipp_points, load_station_metadata
+from app.processing.quality_control import QualityControlConfig, apply_quality_control
 from app.processing.ringo_ingest import (
     export_observation_products,
     load_ringo_csv,
@@ -36,6 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-arc-points", type=int, default=10)
     parser.add_argument("--shell-height-km", type=float, default=350.0)
     parser.add_argument("--min-elevation-deg", type=float, default=15.0)
+    parser.add_argument("--min-s1-dbhz", type=float, default=None)
+    parser.add_argument("--min-s2-dbhz", type=float, default=None)
+    parser.add_argument("--max-abs-code-geometry-free-m", type=float, default=None)
     parser.add_argument("--time-step", default="15min")
     parser.add_argument("--lat-resolution-deg", type=float, default=0.5)
     parser.add_argument("--lon-resolution-deg", type=float, default=0.5)
@@ -73,6 +77,15 @@ def main() -> None:
     wide = normalize_wide_observations(ringo_frame, station_id=station_id, source_path=ringo_csv_path)
     long_frame = wide_to_long_observations(wide)
     selected = select_priority_observations(wide, IngestConfig().observation_priorities)
+    selected = apply_quality_control(
+        selected,
+        QualityControlConfig(
+            min_elevation_deg=args.min_elevation_deg,
+            min_s1_dbhz=args.min_s1_dbhz,
+            min_s2_dbhz=args.min_s2_dbhz,
+            max_abs_code_geometry_free_m=args.max_abs_code_geometry_free_m,
+        ),
+    )
     export_observation_products(
         wide=wide,
         long_frame=long_frame,

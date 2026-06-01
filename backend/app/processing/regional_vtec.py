@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import duckdb
 import numpy as np
 import pandas as pd
 from scipy.sparse import coo_matrix, csr_matrix, vstack
@@ -20,11 +21,16 @@ class RegionalVtecConfig:
     lon_max_deg: float = 155.0
     smoothing_lambda: float = 0.25
     padding_cells: int = 1
+    output_padding_cells: int = 1
 
 
 @dataclass(frozen=True)
 class RegionalVtecArtifacts:
     output_path: Path
+
+
+def _time_step_seconds(time_step: str) -> int:
+    return int(pd.Timedelta(time_step).total_seconds())
 
 
 def load_ipp_points(path: str | Path) -> pd.DataFrame:
@@ -88,6 +94,29 @@ def _build_smoothing_matrix(lat_count: int, lon_count: int, smoothing_lambda: fl
                 row_idx += 1
 
     return coo_matrix((data, (rows, cols)), shape=(row_idx, lat_count * lon_count)).tocsr()
+
+
+def _expand_observed_mask(mask: np.ndarray, padding_cells: int) -> np.ndarray:
+    if padding_cells <= 0:
+        return mask
+
+    expanded = mask.copy()
+    for lat_shift in range(-padding_cells, padding_cells + 1):
+        for lon_shift in range(-padding_cells, padding_cells + 1):
+            if lat_shift == 0 and lon_shift == 0:
+                continue
+            src_lat_start = max(0, -lat_shift)
+            src_lat_end = mask.shape[0] - max(0, lat_shift)
+            src_lon_start = max(0, -lon_shift)
+            src_lon_end = mask.shape[1] - max(0, lon_shift)
+            dst_lat_start = max(0, lat_shift)
+            dst_lat_end = dst_lat_start + (src_lat_end - src_lat_start)
+            dst_lon_start = max(0, lon_shift)
+            dst_lon_end = dst_lon_start + (src_lon_end - src_lon_start)
+            expanded[dst_lat_start:dst_lat_end, dst_lon_start:dst_lon_end] |= mask[
+                src_lat_start:src_lat_end, src_lon_start:src_lon_end
+            ]
+    return expanded
 
 
 def _observation_matrix(
@@ -189,8 +218,12 @@ def _solve_time_bin(
 
     rows: list[dict[str, object]] = []
     time_bin = observed["time_bin"].iloc[0]
+    observed_mask = (weighted_counts.reshape(local_lat_count, local_lon_count) > 0)
+    keep_mask = _expand_observed_mask(observed_mask, config.output_padding_cells)
     for lat_idx, lat_center in enumerate(lat_centers):
         for lon_idx, lon_center in enumerate(lon_centers):
+            if not keep_mask[lat_idx, lon_idx]:
+                continue
             cell_idx = _grid_index(lat_idx, lon_idx, local_lon_count)
             count = float(weighted_counts[cell_idx])
             sample_count = int(round(count))
@@ -246,6 +279,65 @@ def build_regional_vtec_grid(ipp_points: pd.DataFrame, config: RegionalVtecConfi
     bins: list[pd.DataFrame] = []
     for _, time_frame in frame.groupby("time_bin", sort=True):
         bins.append(_solve_time_bin(time_frame.reset_index(drop=True), lat_centers, lon_centers, config))
+    return pd.concat(bins, ignore_index=True) if bins else pd.DataFrame()
+
+
+def list_time_bins_for_parquet(path: str | Path, config: RegionalVtecConfig) -> list[pd.Timestamp]:
+    step_seconds = _time_step_seconds(config.time_step)
+    query = """
+        SELECT DISTINCT CAST(floor(epoch(time) / ?) * ? AS BIGINT) AS time_bin_epoch
+        FROM read_parquet(?)
+        ORDER BY time_bin_epoch
+    """
+    connection = duckdb.connect()
+    try:
+        rows = connection.execute(query, [step_seconds, step_seconds, str(path)]).fetchall()
+    finally:
+        connection.close()
+    return [pd.Timestamp(int(row[0]), unit="s", tz="UTC") for row in rows]
+
+
+def load_ipp_points_for_time_bin(
+    path: str | Path,
+    time_bin: pd.Timestamp,
+    config: RegionalVtecConfig,
+) -> pd.DataFrame:
+    time_bin = pd.Timestamp(time_bin)
+    if time_bin.tzinfo is None:
+        time_bin = time_bin.tz_localize("UTC")
+    else:
+        time_bin = time_bin.tz_convert("UTC")
+    time_bin_end = time_bin + pd.Timedelta(config.time_step)
+    query = """
+        SELECT
+            strftime(time, '%Y-%m-%dT%H:%M:%S') AS time_iso,
+            ipp_lat_deg,
+            ipp_lon_deg,
+            vtec_tecu,
+            stec_leveled_tecu,
+            mapping_function
+        FROM read_parquet(?)
+        WHERE epoch(time) >= ? AND epoch(time) < ?
+    """
+    connection = duckdb.connect()
+    try:
+        frame = connection.execute(
+            query,
+            [str(path), int(time_bin.timestamp()), int(time_bin_end.timestamp())],
+        ).df()
+    finally:
+        connection.close()
+    frame["time"] = pd.to_datetime(frame.pop("time_iso"), utc=True)
+    return frame
+
+
+def build_regional_vtec_grid_from_parquet(path: str | Path, config: RegionalVtecConfig) -> pd.DataFrame:
+    bins: list[pd.DataFrame] = []
+    for time_bin in list_time_bins_for_parquet(path, config):
+        time_frame = load_ipp_points_for_time_bin(path, time_bin, config)
+        if time_frame.empty:
+            continue
+        bins.append(build_regional_vtec_grid(time_frame, config))
     return pd.concat(bins, ignore_index=True) if bins else pd.DataFrame()
 
 

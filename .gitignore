@@ -1,3 +1,10 @@
 .venv/
 __pycache__/
 *.pyc
+data/
+frontend/dist/
+frontend/node_modules/
+frontend/tsconfig.node.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

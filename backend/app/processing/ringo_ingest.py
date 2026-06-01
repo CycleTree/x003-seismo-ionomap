@@ -9,6 +9,7 @@ from app.config.gnss import ObservationPriority
 
 
 BASE_COLUMNS = ("PRN", "time")
+CONTEXT_COLUMNS = ("az", "el")
 
 
 @dataclass(frozen=True)
@@ -24,7 +25,7 @@ def load_ringo_csv(csv_path: str | Path) -> pd.DataFrame:
     frame.columns = [column.replace(">", "").strip() for column in frame.columns]
     if not {"PRN", "time"}.issubset(frame.columns):
         raise ValueError(f"Unexpected rnxcsv columns in {csv_path}")
-    for column in frame.select_dtypes(include="object").columns:
+    for column in frame.select_dtypes(include=["object", "string"]).columns:
         frame[column] = frame[column].astype(str).str.strip()
     frame = frame.loc[
         (frame["PRN"] != "PRN")
@@ -59,10 +60,14 @@ def wide_to_long_observations(wide: pd.DataFrame) -> pd.DataFrame:
     obs_columns = [
         column
         for column in wide.columns
-        if column not in {"station_id", "system", "sat_id", "time", "source_path"}
+        if column not in {"station_id", "system", "sat_id", "time", "source_path", *CONTEXT_COLUMNS}
     ]
     long_frame = wide.melt(
-        id_vars=[column for column in ["station_id", "system", "sat_id", "time", "source_path"] if column in wide.columns],
+        id_vars=[
+            column
+            for column in ["station_id", "system", "sat_id", "time", "source_path", *CONTEXT_COLUMNS]
+            if column in wide.columns
+        ],
         value_vars=obs_columns,
         var_name="obs_code",
         value_name="value",
@@ -79,6 +84,9 @@ def select_priority_observations(
     selected = frame[["station_id", "system", "sat_id", "time"]].copy()
     if "source_path" in frame.columns:
         selected["source_path"] = frame["source_path"]
+    for column in CONTEXT_COLUMNS:
+        if column in frame.columns:
+            selected[column] = pd.to_numeric(frame[column], errors="coerce")
 
     for alias, codes in {
         "L1": priority.l1_priority,

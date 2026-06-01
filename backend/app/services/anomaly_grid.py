@@ -12,7 +12,7 @@ DisplayMode = str
 @dataclass(frozen=True)
 class AnomalyGridServiceConfig:
     root_dir: Path
-    prefixes: tuple[str, ...] = ("national_make", "full_run_make")
+    prefixes: tuple[str, ...] = ("national_onebin", "national_make", "full_run_make")
 
 
 def _grid_dirs(config: AnomalyGridServiceConfig) -> list[Path]:

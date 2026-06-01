@@ -19,6 +19,7 @@ class RegionalVtecConfig:
     lon_min_deg: float = 120.0
     lon_max_deg: float = 155.0
     smoothing_lambda: float = 0.25
+    padding_cells: int = 1
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,22 @@ def _axis_centers(min_deg: float, max_deg: float, resolution_deg: float) -> np.n
 
 def _grid_index(lat_idx: int, lon_idx: int, lon_count: int) -> int:
     return lat_idx * lon_count + lon_idx
+
+
+def _local_grid_window(
+    frame: pd.DataFrame,
+    config: RegionalVtecConfig,
+    global_lat_count: int,
+    global_lon_count: int,
+) -> tuple[int, int, int, int]:
+    lat_positions = (frame["ipp_lat_deg"].to_numpy(dtype=float) - config.lat_min_deg) / config.lat_resolution_deg
+    lon_positions = (frame["ipp_lon_deg"].to_numpy(dtype=float) - config.lon_min_deg) / config.lon_resolution_deg
+
+    min_lat_idx = max(0, int(np.floor(np.nanmin(lat_positions))) - config.padding_cells)
+    max_lat_idx = min(global_lat_count - 1, int(np.floor(np.nanmax(lat_positions))) + config.padding_cells + 1)
+    min_lon_idx = max(0, int(np.floor(np.nanmin(lon_positions))) - config.padding_cells)
+    max_lon_idx = min(global_lon_count - 1, int(np.floor(np.nanmax(lon_positions))) + config.padding_cells + 1)
+    return min_lat_idx, max_lat_idx, min_lon_idx, max_lon_idx
 
 
 def _build_smoothing_matrix(lat_count: int, lon_count: int, smoothing_lambda: float) -> csr_matrix:
@@ -75,12 +92,12 @@ def _build_smoothing_matrix(lat_count: int, lon_count: int, smoothing_lambda: fl
 
 def _observation_matrix(
     frame: pd.DataFrame,
-    lat_centers: np.ndarray,
-    lon_centers: np.ndarray,
+    lat_offset: int,
+    lon_offset: int,
+    lat_count: int,
+    lon_count: int,
     config: RegionalVtecConfig,
 ) -> tuple[csr_matrix, np.ndarray]:
-    lat_count = len(lat_centers)
-    lon_count = len(lon_centers)
     rows: list[int] = []
     cols: list[int] = []
     data: list[float] = []
@@ -92,8 +109,8 @@ def _observation_matrix(
         if not (config.lat_min_deg <= lat <= config.lat_max_deg and config.lon_min_deg <= lon <= config.lon_max_deg):
             continue
 
-        lat_pos = (lat - config.lat_min_deg) / config.lat_resolution_deg
-        lon_pos = (lon - config.lon_min_deg) / config.lon_resolution_deg
+        lat_pos = (lat - config.lat_min_deg) / config.lat_resolution_deg - lat_offset
+        lon_pos = (lon - config.lon_min_deg) / config.lon_resolution_deg - lon_offset
         base_lat = int(np.floor(lat_pos))
         base_lon = int(np.floor(lon_pos))
         frac_lat = lat_pos - base_lat
@@ -134,17 +151,31 @@ def _observation_matrix(
 
 def _solve_time_bin(
     frame: pd.DataFrame,
-    lat_centers: np.ndarray,
-    lon_centers: np.ndarray,
+    global_lat_centers: np.ndarray,
+    global_lon_centers: np.ndarray,
     config: RegionalVtecConfig,
-    smoothing_matrix: csr_matrix,
 ) -> pd.DataFrame:
-    observation_matrix, valid_indices = _observation_matrix(frame, lat_centers, lon_centers, config)
+    lat_start, lat_end, lon_start, lon_end = _local_grid_window(
+        frame, config, len(global_lat_centers), len(global_lon_centers)
+    )
+    lat_centers = global_lat_centers[lat_start : lat_end + 1]
+    lon_centers = global_lon_centers[lon_start : lon_end + 1]
+    local_lat_count = len(lat_centers)
+    local_lon_count = len(lon_centers)
+    observation_matrix, valid_indices = _observation_matrix(
+        frame,
+        lat_start,
+        lon_start,
+        local_lat_count,
+        local_lon_count,
+        config,
+    )
     if observation_matrix.shape[0] == 0:
         return pd.DataFrame(columns=["time_bin", "grid_lat_deg", "grid_lon_deg", "sample_count", "mean_vtec_tecu", "median_vtec_tecu", "std_vtec_tecu", "min_vtec_tecu", "max_vtec_tecu", "mean_stec_tecu"])
 
     observed = frame.iloc[valid_indices].reset_index(drop=True)
     target = observed["vtec_tecu"].to_numpy(dtype=float)
+    smoothing_matrix = _build_smoothing_matrix(local_lat_count, local_lon_count, config.smoothing_lambda)
     system_matrix = vstack([observation_matrix, smoothing_matrix], format="csr")
     system_target = np.concatenate([target, np.zeros(smoothing_matrix.shape[0], dtype=float)])
     solved = lsqr(system_matrix, system_target, atol=1e-8, btol=1e-8, iter_lim=500)[0]
@@ -160,7 +191,7 @@ def _solve_time_bin(
     time_bin = observed["time_bin"].iloc[0]
     for lat_idx, lat_center in enumerate(lat_centers):
         for lon_idx, lon_center in enumerate(lon_centers):
-            cell_idx = _grid_index(lat_idx, lon_idx, len(lon_centers))
+            cell_idx = _grid_index(lat_idx, lon_idx, local_lon_count)
             count = float(weighted_counts[cell_idx])
             sample_count = int(round(count))
             solved_vtec = float(solved[cell_idx])
@@ -212,11 +243,9 @@ def build_regional_vtec_grid(ipp_points: pd.DataFrame, config: RegionalVtecConfi
     frame["time_bin"] = frame["time"].dt.floor(config.time_step)
     lat_centers = _axis_centers(config.lat_min_deg, config.lat_max_deg, config.lat_resolution_deg)
     lon_centers = _axis_centers(config.lon_min_deg, config.lon_max_deg, config.lon_resolution_deg)
-    smoothing_matrix = _build_smoothing_matrix(len(lat_centers), len(lon_centers), config.smoothing_lambda)
-
     bins: list[pd.DataFrame] = []
     for _, time_frame in frame.groupby("time_bin", sort=True):
-        bins.append(_solve_time_bin(time_frame.reset_index(drop=True), lat_centers, lon_centers, config, smoothing_matrix))
+        bins.append(_solve_time_bin(time_frame.reset_index(drop=True), lat_centers, lon_centers, config))
     return pd.concat(bins, ignore_index=True) if bins else pd.DataFrame()
 
 

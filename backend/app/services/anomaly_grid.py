@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+DisplayMode = str
+
 
 @dataclass(frozen=True)
 class AnomalyGridServiceConfig:
@@ -49,10 +51,37 @@ def filter_grid_by_time(frame: pd.DataFrame, time_iso: str | None) -> tuple[pd.D
     return filtered, target.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def anomaly_grid_to_geojson(frame: pd.DataFrame, *, lat_resolution_deg: float = 0.5, lon_resolution_deg: float = 0.5) -> dict[str, Any]:
+def value_column_for_mode(mode: DisplayMode) -> str:
+    if mode == "anomaly":
+        return "z_score"
+    if mode == "detrended":
+        return "delta_vtec_tecu"
+    if mode == "vtec":
+        return "median_vtec_tecu"
+    raise ValueError(f"Unsupported display mode: {mode}")
+
+
+def stats_for_mode(frame: pd.DataFrame, mode: DisplayMode) -> dict[str, float | int]:
+    value_column = value_column_for_mode(mode)
+    values = frame[value_column].astype(float)
+    return {
+        "cellCount": int(len(frame)),
+        "maxAbsValue": float(values.abs().max()),
+        "meanValue": float(values.mean()),
+    }
+
+
+def anomaly_grid_to_geojson(
+    frame: pd.DataFrame,
+    *,
+    mode: DisplayMode,
+    lat_resolution_deg: float = 0.5,
+    lon_resolution_deg: float = 0.5,
+) -> dict[str, Any]:
     features: list[dict[str, Any]] = []
     half_lat = lat_resolution_deg / 2.0
     half_lon = lon_resolution_deg / 2.0
+    value_column = value_column_for_mode(mode)
     for row in frame.itertuples(index=False):
         south = row.grid_lat_deg - half_lat
         north = row.grid_lat_deg + half_lat
@@ -80,9 +109,13 @@ def anomaly_grid_to_geojson(frame: pd.DataFrame, *, lat_resolution_deg: float = 
                     "sample_count": int(row.sample_count),
                     "median_vtec_tecu": float(row.median_vtec_tecu),
                     "baseline_vtec_tecu": float(row.baseline_vtec_tecu),
+                    "baseline_mode": str(row.baseline_mode),
                     "delta_vtec_tecu": float(row.delta_vtec_tecu),
                     "z_score": float(row.z_score),
                     "abs_z_score": float(row.abs_z_score),
+                    "local_time_slot": str(row.local_time_slot),
+                    "display_mode": mode,
+                    "display_value": float(getattr(row, value_column)),
                 },
             }
         )

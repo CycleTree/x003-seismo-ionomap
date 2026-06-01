@@ -39,6 +39,18 @@
 - `make sample-pipeline`
 - `make national-pipeline MAX_STATIONS=5 WORKERS=2`
 
+## CI
+
+GitHub Actions では次を CI チェックとして扱う。
+
+- backend: `pytest tests -q`
+- frontend: `npm run build`
+
+ローカルでは次を最低限の確認コマンドとする。
+
+- `make test`
+- `docker compose exec -T frontend npm run build`
+
 ## Development Workflow
 
 `v0.2` 以降の開発は次のルールで進める。

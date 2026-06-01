@@ -32,7 +32,7 @@ class StecArtifacts:
 def load_selected_observations(path: str | Path) -> pd.DataFrame:
     frame = pd.read_parquet(path).copy()
     frame["time"] = pd.to_datetime(frame["time"], utc=True)
-    for column in ["L1_value", "L2_value", "C1_value", "C2_value", "S1_value", "S2_value"]:
+    for column in ["L1_value", "L2_value", "C1_value", "C2_value", "S1_value", "S2_value", "L1_lli", "L2_lli"]:
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame

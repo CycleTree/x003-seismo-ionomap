@@ -10,6 +10,7 @@ import pandas as pd
 
 from app.config.gnss import IngestConfig
 from app.processing.ipp import IppProcessingConfig, build_ipp_points, export_ipp_points, load_station_metadata
+from app.processing.quality_control import QualityControlConfig, apply_quality_control
 from app.processing.ringo_ingest import (
     export_observation_products,
     load_ringo_csv,
@@ -40,6 +41,9 @@ class StationProcessingConfig:
     min_arc_points: int
     shell_height_km: float
     min_elevation_deg: float
+    min_s1_dbhz: float | None = None
+    min_s2_dbhz: float | None = None
+    max_abs_code_geometry_free_m: float | None = None
 
 
 def collect_station_pairs(raw_dir: str | Path) -> list[StationPair]:
@@ -97,6 +101,15 @@ def process_single_station(pair: StationPair, config: StationProcessingConfig) -
     wide = normalize_wide_observations(ringo_frame, station_id=station_id, source_path=csv_path)
     long_frame = wide_to_long_observations(wide)
     selected = select_priority_observations(wide, IngestConfig().observation_priorities)
+    selected = apply_quality_control(
+        selected,
+        QualityControlConfig(
+            min_elevation_deg=config.min_elevation_deg,
+            min_s1_dbhz=config.min_s1_dbhz,
+            min_s2_dbhz=config.min_s2_dbhz,
+            max_abs_code_geometry_free_m=config.max_abs_code_geometry_free_m,
+        ),
+    )
     export_observation_products(
         wide=wide,
         long_frame=long_frame,

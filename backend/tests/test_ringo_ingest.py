@@ -108,3 +108,40 @@ def test_select_priority_observations_multi_constellation() -> None:
     assert by_system["E"]["L2_code"] == "L5X"
     assert by_system["R"]["L1_code"] == "L1P"
     assert by_system["R"]["L2_code"] == "L2P"
+
+
+def test_select_priority_observations_propagates_optional_lli_columns() -> None:
+    wide = pd.DataFrame(
+        [
+            {
+                "station_id": "0001",
+                "system": "G",
+                "sat_id": "G01",
+                "time": pd.Timestamp("2026-05-20T00:00:00Z"),
+                "L1C": 12.0,
+                "L1C_lli": 1,
+                "L2W": 14.0,
+                "L2W_lli": 0,
+                "C1C": 11.0,
+                "C2W": 13.0,
+            }
+        ]
+    )
+
+    selected = select_priority_observations(
+        wide,
+        ObservationPriority(
+            system="G",
+            l1_priority=("L1C",),
+            l2_priority=("L2W",),
+            c1_priority=("C1C",),
+            c2_priority=("C2W",),
+            s1_priority=(),
+            s2_priority=(),
+        ),
+    )
+
+    assert "L1_lli" in selected.columns
+    assert "L2_lli" in selected.columns
+    assert selected.iloc[0]["L1_lli"] == 1
+    assert selected.iloc[0]["L2_lli"] == 0

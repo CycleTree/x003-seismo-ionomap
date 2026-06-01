@@ -32,6 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-arc-points", type=int, default=10)
     parser.add_argument("--shell-height-km", type=float, default=350.0)
     parser.add_argument("--min-elevation-deg", type=float, default=15.0)
+    parser.add_argument("--min-s1-dbhz", type=float, default=None)
+    parser.add_argument("--min-s2-dbhz", type=float, default=None)
+    parser.add_argument("--max-abs-code-geometry-free-m", type=float, default=None)
     parser.add_argument("--time-step", default="15min")
     parser.add_argument("--lat-resolution-deg", type=float, default=0.5)
     parser.add_argument("--lon-resolution-deg", type=float, default=0.5)
@@ -66,6 +69,9 @@ def main() -> None:
             min_arc_points=args.min_arc_points,
             shell_height_km=args.shell_height_km,
             min_elevation_deg=args.min_elevation_deg,
+            min_s1_dbhz=args.min_s1_dbhz,
+            min_s2_dbhz=args.min_s2_dbhz,
+            max_abs_code_geometry_free_m=args.max_abs_code_geometry_free_m,
         ),
         max_workers=args.workers,
     )

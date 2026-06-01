@@ -349,9 +349,14 @@ data/intermediate/ipp_points/00011400_nav.ipp_points.parquet
 
 ### Anomaly
 
-`build_anomaly_grid.py` は grid 単位で baseline と dispersion を求め、`delta_vtec_tecu` と `z_score` を付与する。
+`build_anomaly_grid.py` は `tec_grid` に対して baseline と dispersion を付与し、`delta_vtec_tecu` と `z_score` を生成する。
 
-現在の anomaly は quiet-day ではなく、同一セル内の簡易統計ベースである。
+現在の anomaly は 2 モードを持つ。
+
+- `quiet_day`: 別日の `tec_grid.parquet` を baseline 入力として受け取り、同じ `local_time_slot` のセル統計を使う
+- `self`: quiet-day baseline が無いセル、または baseline 入力が無い場合の fallback
+
+local time は既定で `UTC+9` を使う。
 
 出力例:
 
@@ -463,8 +468,14 @@ make national-pipeline MAX_STATIONS=5 WORKERS=2
 追加列:
 
 - `baseline_vtec_tecu`
+- `baseline_std_tecu`
+- `baseline_reference_count`
+- `baseline_mode`
+- `local_time_slot`
 - `delta_vtec_tecu`
+- `delta_prev_step_tecu`
 - `z_score`
+- `abs_z_score`
 
 ## Not Implemented Yet
 
@@ -474,7 +485,6 @@ make national-pipeline MAX_STATIONS=5 WORKERS=2
 - Melbourne-Wubbena など追加の slip 指標
 - elevation mask の厳密なチューニング
 - satellite position の自前計算
-- quiet-day baseline
 - STEC 以降の multi-GNSS 本格対応
 - 全 1301 局での national batch 常用運転
 - frontend 上の時系列統計パネル

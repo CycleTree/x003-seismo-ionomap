@@ -10,7 +10,12 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config.gnss import IngestConfig
-from app.processing.anomaly import AnomalyProcessingConfig, build_anomaly_grid, export_anomaly_grid
+from app.processing.anomaly import (
+    AnomalyProcessingConfig,
+    build_anomaly_grid,
+    export_anomaly_grid,
+    load_baseline_tec_grids,
+)
 from app.processing.ipp import IppProcessingConfig, build_ipp_points, export_ipp_points, load_station_metadata
 from app.processing.quality_control import QualityControlConfig, apply_quality_control
 from app.processing.regional_vtec import RegionalVtecConfig, build_regional_vtec_grid, export_regional_vtec_grid
@@ -49,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lon-max-deg", type=float, default=155.0)
     parser.add_argument("--smoothing-lambda", type=float, default=0.25)
     parser.add_argument("--std-floor-tecu", type=float, default=0.1)
+    parser.add_argument("--baseline-grid", action="append", default=[], help="Quiet-day TEC grid parquet path")
+    parser.add_argument("--local-time-offset-hours", type=float, default=9.0)
     return parser
 
 
@@ -150,9 +157,14 @@ def main() -> None:
         output_dir=output_root / "tec_grid",
         prefix=ringo_csv_path.stem,
     )
+    baseline_grid = load_baseline_tec_grids(args.baseline_grid)
     anomaly_grid = build_anomaly_grid(
         tec_grid,
-        AnomalyProcessingConfig(std_floor_tecu=args.std_floor_tecu),
+        AnomalyProcessingConfig(
+            std_floor_tecu=args.std_floor_tecu,
+            local_time_offset_hours=args.local_time_offset_hours,
+        ),
+        baseline_grid=baseline_grid,
     )
     anomaly_artifacts = export_anomaly_grid(
         anomaly_grid,

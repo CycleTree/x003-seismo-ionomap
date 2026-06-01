@@ -39,7 +39,18 @@ def test_synthetic_pipeline_end_to_end(tmp_path: Path) -> None:
 
     frame = load_ringo_csv(csv_path)
     wide = normalize_wide_observations(frame, station_id="0001", source_path=csv_path)
-    selected = select_priority_observations(wide, ObservationPriority())
+    selected = select_priority_observations(
+        wide,
+        ObservationPriority(
+            system="G",
+            l1_priority=("L1C",),
+            l2_priority=("L2W",),
+            c1_priority=("C1C",),
+            c2_priority=("C2W",),
+            s1_priority=("S1C",),
+            s2_priority=("S2W",),
+        ),
+    )
     stec = build_stec_arcs(selected, StecProcessingConfig(gap_seconds=300, phase_jump_threshold_tecu=9999, min_arc_points=10))
     station = pd.DataFrame([parse_qc_summary(qc_path)])
     ipp = build_ipp_points(stec, station, IppProcessingConfig(shell_height_km=350.0, min_elevation_deg=15.0))

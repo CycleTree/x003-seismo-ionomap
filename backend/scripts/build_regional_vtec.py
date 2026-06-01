@@ -11,6 +11,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.processing.regional_vtec import (
     RegionalVtecConfig,
     build_regional_vtec_grid,
+    build_regional_vtec_grid_from_parquet,
     export_regional_vtec_grid,
     load_ipp_points,
 )
@@ -28,26 +29,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lon-min-deg", type=float, default=120.0)
     parser.add_argument("--lon-max-deg", type=float, default=155.0)
     parser.add_argument("--smoothing-lambda", type=float, default=0.25)
+    parser.add_argument("--streaming", action="store_true", help="Read parquet one time bin at a time")
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     input_path = Path(args.input_parquet)
-    ipp_points = load_ipp_points(input_path)
-    grid = build_regional_vtec_grid(
-        ipp_points,
-        RegionalVtecConfig(
-            time_step=args.time_step,
-            lat_resolution_deg=args.lat_resolution_deg,
-            lon_resolution_deg=args.lon_resolution_deg,
-            lat_min_deg=args.lat_min_deg,
-            lat_max_deg=args.lat_max_deg,
-            lon_min_deg=args.lon_min_deg,
-            lon_max_deg=args.lon_max_deg,
-            smoothing_lambda=args.smoothing_lambda,
-        ),
+    config = RegionalVtecConfig(
+        time_step=args.time_step,
+        lat_resolution_deg=args.lat_resolution_deg,
+        lon_resolution_deg=args.lon_resolution_deg,
+        lat_min_deg=args.lat_min_deg,
+        lat_max_deg=args.lat_max_deg,
+        lon_min_deg=args.lon_min_deg,
+        lon_max_deg=args.lon_max_deg,
+        smoothing_lambda=args.smoothing_lambda,
     )
+    if args.streaming:
+        grid = build_regional_vtec_grid_from_parquet(input_path, config)
+    else:
+        ipp_points = load_ipp_points(input_path)
+        grid = build_regional_vtec_grid(
+            ipp_points,
+            config,
+        )
     artifacts = export_regional_vtec_grid(
         grid,
         output_dir=args.output_dir,

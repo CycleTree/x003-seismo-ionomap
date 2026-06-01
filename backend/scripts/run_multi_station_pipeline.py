@@ -22,7 +22,11 @@ from app.processing.multi_station import (
     merge_ipp_point_files,
     run_station_batch,
 )
-from app.processing.regional_vtec import RegionalVtecConfig, build_regional_vtec_grid, export_regional_vtec_grid
+from app.processing.regional_vtec import (
+    RegionalVtecConfig,
+    build_regional_vtec_grid_from_parquet,
+    export_regional_vtec_grid,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-s1-dbhz", type=float, default=None)
     parser.add_argument("--min-s2-dbhz", type=float, default=None)
     parser.add_argument("--max-abs-code-geometry-free-m", type=float, default=None)
-    parser.add_argument("--time-step", default="15min")
+    parser.add_argument("--time-step", default="30min")
     parser.add_argument("--lat-resolution-deg", type=float, default=0.5)
     parser.add_argument("--lon-resolution-deg", type=float, default=0.5)
     parser.add_argument("--lat-min-deg", type=float, default=20.0)
@@ -92,8 +96,8 @@ def main() -> None:
     national_ipp_path = output_root / "national" / "national.ipp_points.parquet"
     merged_ipp.to_parquet(national_ipp_path, index=False)
 
-    tec_grid = build_regional_vtec_grid(
-        merged_ipp,
+    tec_grid = build_regional_vtec_grid_from_parquet(
+        national_ipp_path,
         RegionalVtecConfig(
             time_step=args.time_step,
             lat_resolution_deg=args.lat_resolution_deg,

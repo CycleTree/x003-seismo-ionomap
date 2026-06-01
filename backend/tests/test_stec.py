@@ -63,10 +63,16 @@ def test_build_stec_arcs_levels_phase_series_to_code_bias() -> None:
     assert len(result) == 12
     assert result["arc_id"].nunique() == 1
     expected_bias = (result["code_stec_tecu"] - result["phase_stec_tecu"]).median()
-    assert math.isclose(result.iloc[0]["arc_bias_tecu"], expected_bias, rel_tol=1e-12)
+    assert math.isclose(
+        result.iloc[0]["receiver_bias_tecu"] + result.iloc[0]["satellite_bias_tecu"] + result.iloc[0]["arc_bias_tecu"],
+        expected_bias,
+        rel_tol=1e-12,
+    )
+    assert "receiver_bias_tecu" in result.columns
+    assert "satellite_bias_tecu" in result.columns
+    assert "bias_model_residual_tecu" in result.columns
     assert math.isclose(
         result.iloc[0]["stec_leveled_tecu"],
         result.iloc[0]["phase_stec_tecu"] + expected_bias,
         rel_tol=1e-12,
     )
-

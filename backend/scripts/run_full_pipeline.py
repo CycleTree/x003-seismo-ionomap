@@ -11,9 +11,9 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.config.gnss import IngestConfig
 from app.processing.anomaly import AnomalyProcessingConfig, build_anomaly_grid, export_anomaly_grid
-from app.processing.grid import GridProcessingConfig, build_tec_grid, export_tec_grid
 from app.processing.ipp import IppProcessingConfig, build_ipp_points, export_ipp_points, load_station_metadata
 from app.processing.quality_control import QualityControlConfig, apply_quality_control
+from app.processing.regional_vtec import RegionalVtecConfig, build_regional_vtec_grid, export_regional_vtec_grid
 from app.processing.ringo_ingest import (
     export_observation_products,
     load_ringo_csv,
@@ -43,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--time-step", default="15min")
     parser.add_argument("--lat-resolution-deg", type=float, default=0.5)
     parser.add_argument("--lon-resolution-deg", type=float, default=0.5)
+    parser.add_argument("--lat-min-deg", type=float, default=20.0)
+    parser.add_argument("--lat-max-deg", type=float, default=50.0)
+    parser.add_argument("--lon-min-deg", type=float, default=120.0)
+    parser.add_argument("--lon-max-deg", type=float, default=155.0)
+    parser.add_argument("--smoothing-lambda", type=float, default=0.25)
     parser.add_argument("--std-floor-tecu", type=float, default=0.1)
     return parser
 
@@ -127,15 +132,20 @@ def main() -> None:
         output_dir=output_root / "ipp_points",
         prefix=ringo_csv_path.stem,
     )
-    tec_grid = build_tec_grid(
+    tec_grid = build_regional_vtec_grid(
         ipp_points,
-        GridProcessingConfig(
+        RegionalVtecConfig(
             time_step=args.time_step,
             lat_resolution_deg=args.lat_resolution_deg,
             lon_resolution_deg=args.lon_resolution_deg,
+            lat_min_deg=args.lat_min_deg,
+            lat_max_deg=args.lat_max_deg,
+            lon_min_deg=args.lon_min_deg,
+            lon_max_deg=args.lon_max_deg,
+            smoothing_lambda=args.smoothing_lambda,
         ),
     )
-    tec_grid_artifacts = export_tec_grid(
+    tec_grid_artifacts = export_regional_vtec_grid(
         tec_grid,
         output_dir=output_root / "tec_grid",
         prefix=ringo_csv_path.stem,

@@ -45,7 +45,7 @@
 
 1. 実装タスクは最初に GitHub Issue として登録する。
 2. 1 issue = 1 feature branch を基本とする。
-3. branch 名は `feature/<issue_number>` とする。
+3. branch 名は `feature/#<issue_number>` とする。
 4. feature branch から `v0.2` へ Pull Request を送る。
 5. `v0.2` でレビュー・統合したあと、まとまった段階で `main` へマージする。
 6. `main` は release 用の安定ブランチとして扱う。
@@ -53,7 +53,7 @@
 要するに、
 
 - issue を切る
-- `feature/<issue_number>` で実装する
+- `feature/#<issue_number>` で実装する
 - PR は `v0.2` に送る
 - release 時に `main` へマージする
 
